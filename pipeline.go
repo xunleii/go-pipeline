@@ -2,41 +2,42 @@ package pipeline
 
 import (
 	"fmt"
-	"sync"
 )
 
-type Pipeline []Stage
+// Stage is a step executed in parallel on sequentially and composing a pipeline. This is the main
+// component of this package.
+// IMPORTANT: The stage must close the output channel when the input channel is closed (to propagate
+// the close signal and stop the pipeline).
 type Stage interface {
 	Run(inCh <-chan interface{}) (outCh <-chan interface{})
 }
-type ProducerFnc func(inCh <-chan interface{}) (outCh <-chan interface{})
-type ConsumerFnc func(inCh <-chan interface{}) (outCh <-chan interface{})
 
-func (fnc ProducerFnc) Run(inCh <-chan interface{}) (outCh <-chan interface{}) { return fnc(inCh) }
-func (fnc ConsumerFnc) Run(inCh <-chan interface{}) (outCh <-chan interface{}) { return fnc(inCh) }
+// Pipeline is a sequence of stages executed concurrently.
+type Pipeline []Stage
 
+// BufferedChanSize is the size of each buffered channel. This can be change globally for all stages.
+var BufferedChanSize = 32
+
+// Pipelines errors
 var (
-	ErrEmptyPipeline     = fmt.Errorf("pipepile cannot be empty")
-	ErrNilStage          = fmt.Errorf("stage cannot be nil")
-	ErrProducerOnlyFirst = fmt.Errorf("producer can only be used as first stage")
+	ErrEmptyPipeline = fmt.Errorf("pipeline cannot be empty")
+	ErrNilStage      = fmt.Errorf("stage cannot be nil")
 )
 
+// New creates a new Pipeline from stage definitions.
 func New(stages ...Stage) (Pipeline, error) {
-	for idx, stage := range stages {
-		if stage == nil {
-			return nil, ErrNilStage
-		}
-
-		if idx > 0 {
-			switch stage.(type) {
-			case ProducerFnc:
-				return nil, ErrProducerOnlyFirst
-			}
-		}
+	switch {
+	case len(stages) == 0:
+		return nil, ErrEmptyPipeline
+	case hasNilStage(stages):
+		return nil, ErrNilStage
+	default:
+		return stages, nil
 	}
-	return stages, nil
 }
 
+// Run start all stages. The pipeline can be stopped if the given channel is closed (or by the
+// producer if a producer is used).
 func (p Pipeline) Run(inCh <-chan interface{}) (outCh <-chan interface{}) {
 	ch := inCh
 	for _, stage := range p {
@@ -45,50 +46,16 @@ func (p Pipeline) Run(inCh <-chan interface{}) (outCh <-chan interface{}) {
 	return ch
 }
 
-func Producer(n int, fnc func(in <-chan interface{}) (out <-chan interface{})) Stage {
-	return ProducerFnc(func(inCh <-chan interface{}) <-chan interface{} {
-		if fnc == nil || n <= 0 {
-			return inCh
+// StageFnc is a generic function that implements the stage interface.
+type StageFnc func(inCh <-chan interface{}) (outCh <-chan interface{})
+
+func (fnc StageFnc) Run(inCh <-chan interface{}) (outCh <-chan interface{}) { return fnc(inCh) }
+
+func hasNilStage(stages []Stage) bool {
+	for _, stage := range stages {
+		if stage == nil {
+			return true
 		}
-
-		outCh := make(chan interface{}, n*5)
-		wg := &sync.WaitGroup{}
-
-		wg.Add(n)
-		for i := 0; i < n; i++ {
-			go func() {
-				defer wg.Done()
-
-				for out := range fnc(inCh) {
-					outCh <- out
-				}
-			}()
-		}
-		go func() { wg.Wait(); close(outCh) }()
-		return outCh
-	})
-}
-
-func Consumer(n int, fnc func(obj interface{}) interface{}) Stage {
-	return ConsumerFnc(func(inCh <-chan interface{}) <-chan interface{} {
-		if fnc == nil || n <= 0 {
-			return inCh
-		}
-
-		outCh := make(chan interface{}, n*5)
-		wg := &sync.WaitGroup{}
-
-		wg.Add(n)
-		for i := 0; i < n; i++ {
-			go func() {
-				defer wg.Done()
-
-				for in := range inCh {
-					outCh <- fnc(in)
-				}
-			}()
-		}
-		go func() { wg.Wait(); close(outCh) }()
-		return outCh
-	})
+	}
+	return false
 }
