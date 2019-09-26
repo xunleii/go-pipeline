@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/xunleii/pipeline"
+	"github.com/xunleii/go-pipeline"
 )
 
 func TestPipeline_Errors(t *testing.T) {
