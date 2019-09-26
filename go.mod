@@ -1,4 +1,4 @@
-module github.com/xunleii/pipeline
+module github.com/xunleii/go-pipeline
 
 go 1.12
 
