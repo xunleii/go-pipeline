@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,56 +10,47 @@ import (
 )
 
 func TestConsumer(t *testing.T) {
-	p, _ := pipeline.New(
-		pipeline.C(func(obj interface{}) interface{} { return obj.(int) * 5 }),
-	)
+	c := pipeline.C(func(obj interface{}) interface{} { return obj.(int) * 2 })
 
 	in := make(chan interface{})
-	out := p.Run(in)
+	out := c.Run(in)
 
-	in <- 1
+	rnd := rand.Intn(1e6)
+	in <- rnd
 	close(in)
 
-	assert.Equal(t, 5, <-out)
+	assert.Equal(t, rnd*2, <-out)
 	_, open := <-out
 	assert.False(t, open)
 }
 
 func TestConsumer_NilChan(t *testing.T) {
-	p, _ := pipeline.New(
-		pipeline.C(func(obj interface{}) interface{} { return obj.(int) * 2 }),
-	)
+	c := pipeline.C(func(obj interface{}) interface{} { return obj.(int) * 2 })
 
-	out := p.Run(nil)
+	out := c.Run(nil)
 	assert.Nil(t, out)
 }
 
 func TestConsumer_NilFunc(t *testing.T) {
-	p, _ := pipeline.New(
-		pipeline.C(nil),
-	)
+	c := pipeline.C(nil)
 
 	in := make(chan interface{})
-	out := p.Run(in)
+	out := c.Run(in)
 
-	var exIn <-chan interface{}
-	exIn = in
-	assert.Equal(t, exIn, out)
+	assert.Equal(t, (<-chan interface{})(in), out)
 }
 
 func TestProducer(t *testing.T) {
-	p, _ := pipeline.New(
-		pipeline.P(func(in <-chan interface{}) <-chan interface{} {
-			out := make(chan interface{})
-			go func() {
-				for i := 0; i < 10; i++ {
-					out <- i
-				}
-				close(out)
-			}()
-			return out
-		}),
-	)
+	p := pipeline.P(func(in <-chan interface{}) <-chan interface{} {
+		out := make(chan interface{})
+		go func() {
+			for i := 0; i < 10; i++ {
+				out <- i
+			}
+			close(out)
+		}()
+		return out
+	})
 
 	out := p.Run(nil)
 
@@ -70,14 +62,10 @@ func TestProducer(t *testing.T) {
 }
 
 func TestProducer_NilFunc(t *testing.T) {
-	p, _ := pipeline.New(
-		pipeline.P(nil),
-	)
+	p := pipeline.P(nil)
 
 	in := make(chan interface{})
 	out := p.Run(in)
 
-	var exIn <-chan interface{}
-	exIn = in
-	assert.Equal(t, exIn, out)
+	assert.Equal(t, (<-chan interface{})(in), out)
 }

@@ -1,11 +1,15 @@
 package pipeline
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+	"time"
+)
 
 // Parallelize runs n times the given stage and merge theirs outputs in one channel.
 func Parallelize(n int, stage Stage) Stage {
 	return StageFnc(func(inCh <-chan interface{}) <-chan interface{} {
-		if stage == nil || inCh == nil {
+		if n == 0 || stage == nil || inCh == nil {
 			return inCh
 		}
 
@@ -27,11 +31,11 @@ func Parallelize(n int, stage Stage) Stage {
 }
 
 // Fork runs all given stage in parallel by duplicating all value received to all stages. When one
-// of the given stages is blocked, all of this stage is blocked. Use LazyFork to block only if all
+// of the given stages is blocked, all of this stage is blocked. Use Mirror to block only if all
 // given stages are blocked.
 func Fork(stages ...Stage) Stage {
 	return StageFnc(func(inCh <-chan interface{}) <-chan interface{} {
-		if len(stages) == 0 || hasNilStage(stages) {
+		if len(stages) == 0 || hasNilStage(stages) || inCh == nil {
 			return inCh
 		}
 
@@ -41,12 +45,12 @@ func Fork(stages ...Stage) Stage {
 		wg.Add(len(stages))
 		for i, stage := range stages {
 			dupInChs[i] = make(chan interface{}, cap(inCh))
-			go func() {
+			go func(stage Stage, inCh <-chan interface{}) {
 				defer wg.Done()
-				for out := range stage.Run(dupInChs[i]) {
+				for out := range stage.Run(inCh) {
 					outCh <- out
 				}
-			}()
+			}(stage, dupInChs[i])
 		}
 
 		go func() {
@@ -54,6 +58,10 @@ func Fork(stages ...Stage) Stage {
 				for _, dupInCh := range dupInChs {
 					dupInCh <- in
 				}
+			}
+
+			for _, dupInCh := range dupInChs {
+				close(dupInCh)
 			}
 			wg.Wait()
 			close(outCh)
@@ -63,12 +71,12 @@ func Fork(stages ...Stage) Stage {
 	})
 }
 
-// LazyFork runs all given stage in parallel by duplicating all value received to all stages. When one
-// of the given stages is blocked, the next value is dropped. Use Fork to block if one of the given stages
-// is blocked.
-func LazyFork(stages ...Stage) Stage {
+// Mirror runs all given stage in parallel by duplicating all value received to all stages. When one
+// of the given stages is blocked, the next value is dropped. Use Fork to block the stage if at least one
+// of the given stages was blocked.
+func Mirror(stages ...Stage) Stage {
 	return StageFnc(func(inCh <-chan interface{}) <-chan interface{} {
-		if len(stages) == 0 || hasNilStage(stages) {
+		if len(stages) == 0 || hasNilStage(stages) || inCh == nil {
 			return inCh
 		}
 
@@ -78,25 +86,31 @@ func LazyFork(stages ...Stage) Stage {
 		wg.Add(len(stages))
 		for i, stage := range stages {
 			dupInChs[i] = make(chan interface{}, cap(inCh))
-			go func() {
+			go func(stage Stage, inCh <-chan interface{}) {
 				defer wg.Done()
-				for out := range stage.Run(dupInChs[i]) {
+				for out := range stage.Run(inCh) {
 					outCh <- out
 				}
-			}()
+			}(stage, dupInChs[i])
 		}
 
 		go func() {
 			for in := range inCh {
 				blocked := 0
 				for _, dupInCh := range dupInChs {
-					// We drop the value if:
-					//	- len(dupInCh) == cap(dupInCh): the input channel is full
-					//	- blocked != len(dupInChs) - 2: all input channel are blocked ... so we need to block the pipeline
-					if len(dupInCh) < cap(dupInCh) || blocked == len(dupInChs)-2 {
+					// if all forked stage are blocked (without the last), we try to send the value directly in
+					// the channel, without check.
+					if blocked == len(dupInChs)-1 {
+						fmt.Println("BLOCKED")
 						dupInCh <- in
 					} else {
-						blocked++
+						// We try to send the value in the channel. If the channel is blocking, we drop the value.
+						select {
+						case dupInCh <- in:
+						case <-time.After(time.Millisecond):
+							fmt.Println("BLOCKED")
+							blocked++
+						}
 					}
 				}
 			}
