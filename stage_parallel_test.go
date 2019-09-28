@@ -11,7 +11,7 @@ import (
 
 func TestScale(t *testing.T) {
 	p, _ := pipeline.New(
-		pipeline.Scale(10, pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj })),
+		pipeline.Parallelize(10, pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj })),
 	)
 
 	in := make(chan interface{})
