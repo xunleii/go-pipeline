@@ -10,7 +10,10 @@ import (
 )
 
 func TestParallelize(t *testing.T) {
-	p := pipeline.Parallelize(10, pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj }))
+	p := pipeline.Parallelize(
+		10,
+		pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj }),
+	)
 
 	in := make(chan interface{})
 	start := time.Now()
@@ -28,7 +31,10 @@ func TestParallelize(t *testing.T) {
 }
 
 func TestParallelize_Zero(t *testing.T) {
-	p := pipeline.Parallelize(0, pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj }))
+	p := pipeline.Parallelize(
+		0,
+		pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj }),
+	)
 
 	in := make(chan interface{})
 	out := p.Run(in)
@@ -44,7 +50,10 @@ func TestParallelize_NilStage(t *testing.T) {
 }
 
 func TestParallelize_NilChan(t *testing.T) {
-	p := pipeline.Parallelize(10, pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj }))
+	p := pipeline.Parallelize(
+		10,
+		pipeline.C(func(obj interface{}) interface{} { time.Sleep(250 * time.Millisecond); return obj }),
+	)
 
 	out := p.Run(nil)
 	assert.Nil(t, out)
@@ -147,7 +156,7 @@ func TestMirror(t *testing.T) {
 }
 
 func TestMirror_NoStage(t *testing.T) {
-	f := pipeline.Mirror()
+	f := pipeline.Mirror(nil)
 
 	in := make(chan interface{})
 	out := f.Run(in)
@@ -178,8 +187,8 @@ func TestMirror_NilChan(t *testing.T) {
 func TestMirror_NotBlocked(t *testing.T) {
 	lock := make(chan interface{})
 	f := pipeline.Mirror(
-		pipeline.C(func(obj interface{}) interface{} { <-lock; return obj.(int) * 2 }),
 		pipeline.C(func(obj interface{}) interface{} { return obj.(int) * 2 }),
+		pipeline.C(func(obj interface{}) interface{} { <-lock; return obj.(int) * 2 }),
 	)
 
 	in := make(chan interface{})
@@ -210,7 +219,7 @@ func TestMirror_AllBlocked(t *testing.T) {
 	lock := make(chan interface{})
 	f := pipeline.Mirror(
 		pipeline.C(func(obj interface{}) interface{} { <-lock; return obj.(int) * 2 }),
-		pipeline.C(func(obj interface{}) interface{} { <-lock; return obj.(int) * 2 }),
+		pipeline.C(func(obj interface{}) interface{} { return obj.(int) * 2 }),
 	)
 
 	in := make(chan interface{})
